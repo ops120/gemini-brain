@@ -4,9 +4,14 @@
 不需要 API key，不做逆向代理 —— 只驱动官方网页。
 
 - 由本地确定性 CLI（`gmb`）驱动，Agent 只负责调用与判断
-- 人工登录一次，长期复用（**登录持久化是本项目最复杂的一环**，见下文原理）
+- 人工登录一次，之后长期复用（**登录持久化是本项目最复杂的一环**，见下文原理）
 - 发送前有确定性脱敏闸门（私钥整段拒绝、密钥形状脱敏、家目录路径脱敏、尺寸上限）
 - 支持 `[GMB]` 协作协议：让 Gemini 做 PLAN → 你执行 → 它 REVIEW 的循环
+
+> ⚠️ **合规与账号风险**：本项目通过浏览器自动化驱动 Gemini 官方网页版，
+> 可能不符合 Google 服务条款，存在账号被风控、限制或封禁的风险。
+> **强烈建议使用小号**（不要把主账号 —— Gmail / Drive / 相册 —— 暴露给自动化）。
+> 请自行评估并遵守平台条款，**风险自负**；仅供低频个人使用，不要批量滥用。
 
 ## 目录
 
@@ -35,10 +40,11 @@ Gemini 网页版相对其他「网页版大脑」的差异能力：
 | **切换模型** | Flash-Lite（极速）/ Flash（均衡）/ Pro（高级推理） | `--model Pro` |
 | **图片 / 文件分析** | 多模态输入（图片 / PDF / 文本文件，逗号分隔多个路径） | `--attach a.png,b.pdf` |
 | **长文本** | 单次正文 ≤ 50 KB；超过会被闸门拒绝（`PAYLOAD_TOO_LARGE`），需先摘要或分片 | `--allow-large` 放宽到 200 KB |
-| **协作循环** | 规划 / 执行 / 复核的迭代协议 | `--protocol INIT\|EXECUTED` |
+| **协作循环** | 规划 / 执行 / 复核的迭代协议 | `--protocol INIT\|EXECUTED`（另支持 `HANDOFF`） |
 
 > **注意**：Gemini 网页版**有模型选择器**（这点和 DeepSeek 不同）。
 > `modes.model` 返回的是**从选择器 aria 读出的实际生效模型**，不是我们假设的。
+> 表中的模型档位、分辨率等为编写时实测值，会随站点更新，**实际以页面为准**。
 
 **不支持**：生视频、生音频。
 
@@ -46,27 +52,37 @@ Gemini 网页版相对其他「网页版大脑」的差异能力：
 
 ### 前置要求
 
-- **Node.js ≥ 20**
+- **Node.js ≥ 20**，含 npm —— 首次配置要把 `playwright-core` 装到状态目录
 - 系统已装 **Chrome / Edge / Brave / Chromium** 任一（自动探测，不下载 Chromium）
 - 能访问 `gemini.google.com` 的**浏览器**
 - 一个 Google 账号 —— **建议用小号**：Google 对自动化浏览器有风控，主账号（Gmail / Drive / 相册）被风控代价较大
+- **需要图形界面**：首次配置会打开有头浏览器请你本人登录（含 reCAPTCHA），纯 SSH / 容器环境无法完成
 
 ### 作为 Skill 安装
 
+目标目录不存在时先建父目录（`git clone` 不会自动创建）：
+
 ```bash
+mkdir -p ~/.claude/skills ~/.codex/skills ~/.agents/skills   # 已存在则无副作用
+
+# 三条命令按你的宿主任选其一，不要全都执行
 git clone https://github.com/ops120/gemini-brain ~/.claude/skills/gemini-brain     # Claude Code
 git clone https://github.com/ops120/gemini-brain ~/.codex/skills/gemini-brain      # Codex
 git clone https://github.com/ops120/gemini-brain ~/.agents/skills/gemini-brain     # 通用 / ZCode
 ```
 
+> Windows 的 cmd / PowerShell 不展开 `~`，请改用 `%USERPROFILE%\.claude\skills\...` 这类绝对路径。
+
 装好后对 agent 说：**「用 gemini-brain 完成首次配置」**。
 
-> **关于命令写法**：本文档里的 `gmb <命令>` 是简写，等价于
-> `node "<skill-root>/scripts/gmb/cli.mjs" <命令>`，其中 `<skill-root>` 就是 clone 下来的仓库目录
-> （例如 `~/.agents/skills/gemini-brain`）。想用短命令就自己做个别名：
+> **关于命令写法（重要）**：本文档里的 `gmb <命令>` 是**文档简写**，并非已安装的命令，
+> 等价于 `node "<skill-root>/scripts/gmb/cli.mjs" <命令>`，
+> 其中 `<skill-root>` 就是 clone 下来的仓库目录（例如 `~/.agents/skills/gemini-brain`）。
+> **直接复制示例前请先配别名**（路径按你的实际安装位置改）：
 > ```bash
 > alias gmb='node "$HOME/.agents/skills/gemini-brain/scripts/gmb/cli.mjs"'
 > ```
+> 不配别名也可以，把示例里的 `gmb` 整体替换成上面的 `node "..."` 全路径即可。
 
 ### 首次配置
 
@@ -95,16 +111,19 @@ node "<skill-root>/scripts/gmb/cli.mjs" setup
 而 **Google 的登录态重度依赖 session cookie**（`__Secure-1PSID` 等）——
 所以 Gemini 会频繁丢登录态，DeepSeek 却不会（它的 cookie 是持久型的）。
 
-### 解法：三重保险（缺一不可）
+### 解法：三重保险
 
 | 措施 | 作用 | 实现位置 |
 | --- | --- | --- |
-| **`--restore-last-session`** 启动参数 | 让 Chrome 恢复上次会话，session cookie 才会被恢复 | `src/browser.mjs` |
+| **`--restore-last-session`** 启动参数 | 让 Chrome 恢复上次会话，session cookie 才有机会被恢复 | `src/browser.mjs` |
 | **`storage-state.json`** 导出 + 启动时注入 | session cookie 的完整备份（Playwright 官方 API） | `src/browser.mjs` |
 | **优雅关闭 `ctx.close()`** | 触发 Chrome 落盘 cookie（**强杀会跳过落盘，登录态必丢**） | CLI 各处 |
 
 **实测验证**：round1 人工登录 → 导出 32 个 cookie（含 11 个登录 cookie）→ 关闭 →
 round2 重启 → 注入后**直接是登录态，没有任何人工介入**。
+
+> 这三项是当前实现采用的组合措施，实测有效；但登录能否长期保持仍取决于 Google 侧策略
+> （服务端会话过期、风控触发时仍会要求重新登录）。被登出时 CLI 会以 `LOGIN_REQUIRED` 停下，不会硬试。
 
 ### 登录判定必须用 cookie，不能看界面
 
@@ -172,13 +191,15 @@ node "<skill-root>/scripts/gmb/cli.mjs" ask --prompt "分析这张图" --attach 
 
 ## 命令面
 
-所有命令都支持 `--json`，以及 `--debug`（保存页面 HTML）、`--keep-open`（保留浏览器窗口）。
+`--json`（机器可读）与 `--debug`（保存页面 HTML）为全局选项；
+`--keep-open`（保留浏览器窗口）只对会打开浏览器的命令（`ask` / `doctor` / `setup` / `login` / `list-models`）有意义。
+各命令的完整参数以 `--help` 为准。示例使用 `gmb` 简写，未配别名时请展开为 `node "<skill-root>/scripts/gmb/cli.mjs"`。
 
 | 命令 | 作用 | 关键参数 |
 | --- | --- | --- |
 | `setup` | 首次配置：装依赖 → 打开浏览器 → 人工登录 | `--timeout <ms>` |
 | `login` | 重新登录 | `--timeout <ms>` |
-| `logout` | 清除登录态（清 profile 与 storage-state） | — |
+| `logout` | 清除登录态（清 `profile/` 与 `storage-state.json`） | — |
 | `doctor` | 体检 | `--deep`（真机探测页面 / cookie / 模型选择器）、`--html`（额外保存页面 HTML 便于排障） |
 | `ask` | 提问 / 生成 | `--prompt` / `--prompt-file`、`--model`、`--attach`、`--thread`、`--protocol <状态>`、`--task <id>`、`--iteration <n>`、`--timeout`、`--allow-sensitive`、`--allow-large` |
 | `list-models` | 列出可用模型（打开选择器读取） | — |
@@ -187,7 +208,11 @@ node "<skill-root>/scripts/gmb/cli.mjs" ask --prompt "分析这张图" --attach 
 | `logs` | 查看脱敏日志 | `-n <行数>`、`--verbose` |
 | `update-check` | 检查更新 | `--force` |
 
-运行方式：`node <skill-root>/scripts/gmb/cli.mjs <命令>`。
+运行方式：`node "<skill-root>/scripts/gmb/cli.mjs" <命令>`。
+
+> **注意 `--protocol` 与 `--protocol-state` 是两套不同的枚举，别混用**：
+> `--protocol`（用于 `ask`）取 `INIT` / `PLAN` / `EXECUTING` / `EXECUTED` / `REVIEW` / `HANDOFF`；
+> `--protocol-state`（用于 `session set`）取 `INIT` / `PLAN_RECEIVED` / `EXECUTING` / `EXECUTED_LOCAL` / `EXECUTED_SENT` / `DONE` / `BLOCKED`。
 
 ### doctor 检查项
 
@@ -210,18 +235,21 @@ node "<skill-root>/scripts/gmb/cli.mjs" ask --prompt "分析这张图" --attach 
   "threadUrl": "https://gemini.google.com/app/2365c02ac27ab65d",
   "modes": { "model": "Pro", "requested": "Pro" },
   "text": "……回答正文……",
-  "files": [{ "file": "C:/Users/…/downloads/<wsid>/Gemini_Generated_Image_xxx.png",
+  "files": [{ "file": "<state>/downloads/<wsid>/Gemini_Generated_Image_xxx.png",
               "bytes": 9791938 }],
-  "mode": "chat | canvas | artifact",
+  "mode": "artifact",
   "truncated": false,
   "elapsedMs": 41000
 }
 ```
 
+> `file` 是**状态目录下**的绝对路径，即 `%LOCALAPPDATA%\gemini-brain\downloads\<workspaceId>\…`（Windows）
+> 或对应的 macOS / Linux 路径，不是项目目录。
+
 **字段说明**：
 
 - `modes.model` —— **实际生效**的模型（从选择器 aria 读取）。与 `requested` 不一致时必须标注
-- `mode` —— 承载形态，取值互斥，按优先级判定：
+- `mode` —— 承载形态，**单个字符串**（不是多个值的并列），取值互斥，按优先级判定：
 
   | 值 | 含义 | `text` | `files[]` |
   | --- | --- | --- | --- |
@@ -231,26 +259,33 @@ node "<skill-root>/scripts/gmb/cli.mjs" ask --prompt "分析这张图" --attach 
 - `files[]` —— **已下载到本地的产物**绝对路径（图片 / 代码文件）
 - `truncated` —— `true` 表示可能被截断，需如实告知用户
 
-失败（**判别联合**）：`{ "ok": false, "reason": "LOGIN_REQUIRED", "message": "…" }`
+失败（**判别联合**）：`{ "ok": false, "reason": "LOGIN_REQUIRED", "message": "…" }`；
+限流场景会额外带 `retryAfterMs`（建议退避毫秒数）。
 
 ## 协作协议（`[GMB]`）
 
 与 deepseek-brain 同构：让 Gemini 当「规划与审查大脑」，**执行权始终在本地 agent 手里**。
+示例使用 `gmb` 简写，未配别名时请展开为全路径。
 
 ```bash
 gmb ask --protocol INIT --task gmb_f81a --iteration 0 --prompt-file goal.txt --json
-#   → protocol.reply.state：PLAN = 拿到方案 | BLOCKED = 停下问用户
+#   → protocol.reply：PLAN = 拿到方案 | BLOCKED = 停下问用户
 
 gmb ask --protocol EXECUTED --iteration 1 --prompt-file report.txt --json
 #   → DONE = 结束 | PLAN = 还有下一轮 | BLOCKED = 停下
+#   --task / --iteration 省略时会自动沿用工作区 session 里的值
 
 gmb thread status --json   # 查进度（checkpoint 自动落盘）
+
+# 线程丢失时用 HANDOFF 重新交接（协议同样支持）
+gmb ask --protocol HANDOFF --prompt-file handoff.txt --json
 ```
 
 - 信封由 CLI 自动封装，回复状态由代码解析
-- 迭代上限默认 12，到顶暂停问用户
+- 建议同一任务不超过 12 轮，到顶暂停问用户（这是给 agent 的使用约定，不是 CLI 参数）
 - 线程丢失 → 依据 checkpoint 发 HANDOFF，**不粘贴日志或 diff**
-- 详见 [references/protocol.md](references/protocol.md)
+- 协议模式下返回值会多一个 `protocol` 字段（`sent` / `reply` / `taskId` / `iteration`），
+  详见 [references/protocol.md](references/protocol.md)
 
 ## 失败处理
 
@@ -280,7 +315,7 @@ gmb thread status --json   # 查进度（checkpoint 自动落盘）
 ```
 Windows  %LOCALAPPDATA%\gemini-brain\
 macOS    ~/Library/Application Support/gemini-brain/
-Linux    $XDG_STATE_HOME/gemini-brain/
+Linux    $XDG_STATE_HOME/gemini-brain/   （该变量未设置时通常为 ~/.local/state/gemini-brain/）
 ```
 
 | 内容 | 说明 |
@@ -292,7 +327,7 @@ Linux    $XDG_STATE_HOME/gemini-brain/
 | `threads/<workspaceId>.json` | 工作区级线程与检查点 |
 | `outputs/<workspaceId>.jsonl` | 审计：每次问答一行元数据 |
 | `logs/gmb.log` | 脱敏日志 |
-| `debug/` | 仅 `--debug` 或失败时保存的页面截图与 HTML —— ⚠️ **可能含回答正文与你的输入，未脱敏**，排障后建议删除 |
+| `debug/` | 仅 `--debug` 或失败时保存的页面截图与 HTML —— ⚠️ **可能含回答正文与你的输入，未脱敏**，排障后建议删除；**不要直接上传到公开 issue** |
 
 **隐私要点**：
 
@@ -356,19 +391,22 @@ Linux    $XDG_STATE_HOME/gemini-brain/
 唯一需要改的地方是 **`scripts/gmb/src/site.mjs`**：
 
 ```bash
-node <skill-root>/scripts/gmb/cli.mjs doctor --deep --html --json   # 定位漂移
-# 改 site.mjs
-node scripts/gmb/tests/sanitize.test.mjs                            # 跑单测
+# 在 skill 根目录执行（<skill-root> 换成实际安装路径）
+node "<skill-root>/scripts/gmb/cli.mjs" doctor --deep --html --json   # 定位漂移
+# 改 scripts/gmb/src/site.mjs
+node "<skill-root>/scripts/gmb/tests/sanitize.test.mjs"               # 跑单测
 ```
 
 ## 边界
 
-- **低频辅助工具**：每次问答会真实打开浏览器窗口，不适合批量调用。
+- **低频辅助工具**：每次问答会真实打开浏览器窗口，不适合批量调用；
+  生图 / Canvas 类请求单次可达 30–60 秒，属正常。
 - **不做批量 / 不做并发**：同一时间只跑一个会话。
-- **不做 web2api**：只驱动官方网页。
+- **不做 web2api**：只在本机驱动官方网页，不逆向私有协议、不做 HTTP 代理、不对外暴露接口。
 - **不生视频 / 生音频**：可理解图片与文件，但不产出音视频。
 - **模型是固定几档**（Flash-Lite / Flash / Pro），不能自选版本号。
-- **Google 账号风控**：建议用小号；被登出时会停下要求人工重登，不会硬试。
+- **Google 账号风控**：建议用小号（别用主账号）；被登出时会停下要求人工重登，不会硬试。
+- **合规风险**：自动化驱动网页版可能违反 Google 服务条款，详见文首警告。
 
 ## 项目结构
 
