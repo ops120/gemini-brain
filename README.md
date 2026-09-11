@@ -4,7 +4,8 @@
 不需要 API key，不做逆向代理 —— 只驱动官方网页。
 
 - 由本地确定性 CLI（`gmb`）驱动，Agent 只负责调用与判断
-- 人工登录一次，之后长期复用（**登录持久化是本项目最复杂的一环**，见下文原理）
+- 登录一次后**尽量**长期复用（登录持久化是本项目最复杂的一环，见下文原理；
+  Google 侧策略可能导致较频繁地要求重新登录，被登出时 CLI 会停下等人）
 - 发送前有确定性脱敏闸门（私钥整段拒绝、密钥形状脱敏、家目录路径脱敏、尺寸上限）
 - 支持 `[GMB]` 协作协议：让 Gemini 做 PLAN → 你执行 → 它 REVIEW 的循环
 
@@ -64,8 +65,10 @@ Gemini 网页版相对其他「网页版大脑」的差异能力：
 
 ```bash
 mkdir -p ~/.claude/skills ~/.codex/skills ~/.agents/skills   # 已存在则无副作用
-# Windows cmd:  mkdir "%USERPROFILE%\.claude\skills"
-# PowerShell:   mkdir "$env:USERPROFILE\.claude\skills" -Force
+# Windows cmd（三个父目录一次建好）:
+#   mkdir "%USERPROFILE%\.claude\skills" "%USERPROFILE%\.codex\skills" "%USERPROFILE%\.agents\skills"
+# PowerShell:
+#   "$env:USERPROFILE\.claude\skills","$env:USERPROFILE\.codex\skills","$env:USERPROFILE\.agents\skills" | ForEach-Object { mkdir $_ -Force }
 
 # 三条命令按你的宿主任选其一，不要全都执行
 git clone https://github.com/ops120/gemini-brain ~/.claude/skills/gemini-brain     # Claude Code
@@ -79,18 +82,24 @@ git clone https://github.com/ops120/gemini-brain ~/.agents/skills/gemini-brain  
 装好后对 agent 说：**「用 gemini-brain 完成首次配置」**。
 
 > **关于命令写法（重要）**：本文档里的 `gmb <命令>` 是**文档简写**，并非已安装的命令，
-> 等价于 `node "<skill-root>/scripts/gmb/cli.mjs" <命令>`，
-> 其中 `<skill-root>` 就是 clone 下来的仓库目录（例如 `~/.agents/skills/gemini-brain`）。
-> **直接复制示例前请先配别名**（路径按你的实际安装位置改）：
+> 等价于 `node "$SKILL_ROOT/scripts/gmb/cli.mjs" <命令>`，
+> 其中 `SKILL_ROOT` 是你 clone 下来的仓库目录（例如 `~/.agents/skills/gemini-brain`）。
+>
+> **推荐先设变量再配别名**（按你的宿主任选一行改）：
 > ```bash
-> alias gmb='node "$HOME/.agents/skills/gemini-brain/scripts/gmb/cli.mjs"'
+> # Claude Code：SKILL_ROOT="$HOME/.claude/skills/gemini-brain"
+> # Codex：      SKILL_ROOT="$HOME/.codex/skills/gemini-brain"
+> # 通用/ZCode： SKILL_ROOT="$HOME/.agents/skills/gemini-brain"
+> SKILL_ROOT="$HOME/.agents/skills/gemini-brain"   # ← 改成你实际用的那个
+> export SKILL_ROOT
+> alias gmb='node "$SKILL_ROOT/scripts/gmb/cli.mjs"'
 > ```
-> 不配别名也可以，把示例里的 `gmb` 整体替换成上面的 `node "..."` 全路径即可。
+> 不配别名也可以，把示例里的 `gmb` 整体替换成 `node "$SKILL_ROOT/scripts/gmb/cli.mjs"`。
 
 ### 首次配置
 
 ```bash
-node "<skill-root>/scripts/gmb/cli.mjs" setup
+node "$SKILL_ROOT/scripts/gmb/cli.mjs" setup
 ```
 
 1. 检查 Node 版本与系统浏览器
@@ -162,32 +171,32 @@ CLI 里由 `readLoginCookies()` 统一判定，`doctor --deep` 会报告登录 c
 
 ```bash
 # 体检（建议每次任务前跑）
-node "<skill-root>/scripts/gmb/cli.mjs" doctor --json
+node "$SKILL_ROOT/scripts/gmb/cli.mjs" doctor --json
 
 # 写检查点（session set 完整形态；protocol-state / waiting-for 只接受枚举值）
 #   --protocol-state: INIT | PLAN_RECEIVED | EXECUTING | EXECUTED_LOCAL | EXECUTED_SENT | DONE | BLOCKED
 #   --waiting-for:    none | BRAIN_PLAN | BRAIN_REVIEW | USER
-node "<skill-root>/scripts/gmb/cli.mjs" session set   --protocol-state PLAN_RECEIVED --waiting-for none --next-step "execute PLAN" --json
+node "$SKILL_ROOT/scripts/gmb/cli.mjs" session set   --protocol-state PLAN_RECEIVED --waiting-for none --next-step "execute PLAN" --json
 
 # 普通问答
-node "<skill-root>/scripts/gmb/cli.mjs" ask --prompt-file ./question.txt --json
+node "$SKILL_ROOT/scripts/gmb/cli.mjs" ask --prompt-file ./question.txt --json
 
 # 指定模型
-node "<skill-root>/scripts/gmb/cli.mjs" ask --prompt "分析下这段代码" --model Pro --json
+node "$SKILL_ROOT/scripts/gmb/cli.mjs" ask --prompt "分析下这段代码" --model Pro --json
 
 # 列出可用模型
-node "<skill-root>/scripts/gmb/cli.mjs" list-models --json
+node "$SKILL_ROOT/scripts/gmb/cli.mjs" list-models --json
 
 # 生成图片（产物自动下载到本地，files[] 给绝对路径）
-node "<skill-root>/scripts/gmb/cli.mjs" ask \
+node "$SKILL_ROOT/scripts/gmb/cli.mjs" ask \
   --prompt "一只柴犬坐在樱花树下的草地上，水彩插画风格" --thread new --json
 
 # 写代码 / 页面 / 动画（代码走 Canvas 面板，产物自动下载）
-node "<skill-root>/scripts/gmb/cli.mjs" ask \
+node "$SKILL_ROOT/scripts/gmb/cli.mjs" ask \
   --prompt "用纯 SVG 写一个循环动画：鹈鹕骑自行车" --thread new --json
 
 # 附件分析
-node "<skill-root>/scripts/gmb/cli.mjs" ask --prompt "分析这张图" --attach ./pic.png --json
+node "$SKILL_ROOT/scripts/gmb/cli.mjs" ask --prompt "分析这张图" --attach ./pic.png --json
 ```
 
 对 agent 说人话也一样：**「让 gemini 画一只猫」**、**「用 gemini Pro 分析下这个报错」**。
@@ -196,7 +205,7 @@ node "<skill-root>/scripts/gmb/cli.mjs" ask --prompt "分析这张图" --attach 
 
 `--json`（机器可读）与 `--debug`（保存页面 HTML）为全局选项；
 `--keep-open`（保留浏览器窗口）只对会打开浏览器的命令（`ask` / `doctor` / `setup` / `login` / `list-models`）有意义。
-各命令的完整参数以 `--help` 为准。示例使用 `gmb` 简写，未配别名时请展开为 `node "<skill-root>/scripts/gmb/cli.mjs"`。
+各命令的完整参数以 `--help` 为准。示例使用 `gmb` 简写，未配别名时请展开为 `node "$SKILL_ROOT/scripts/gmb/cli.mjs"`。
 
 | 命令 | 作用 | 关键参数 |
 | --- | --- | --- |
@@ -211,7 +220,7 @@ node "<skill-root>/scripts/gmb/cli.mjs" ask --prompt "分析这张图" --attach 
 | `logs` | 查看脱敏日志 | `-n <行数>`、`--verbose` |
 | `update-check` | 检查更新 | `--force` |
 
-运行方式：`node "<skill-root>/scripts/gmb/cli.mjs" <命令>`。
+运行方式：`node "$SKILL_ROOT/scripts/gmb/cli.mjs" <命令>`。
 
 > **注意 `--protocol` 与 `--protocol-state` 是两套不同的枚举，别混用**：
 > `--protocol`（用于 `ask`）取 `INIT` / `PLAN` / `EXECUTING` / `EXECUTED` / `REVIEW` / `HANDOFF`；
@@ -299,7 +308,7 @@ gmb ask --protocol HANDOFF --prompt-file handoff.txt --json
 | `LOGIN_REQUIRED` | 登录失效（cookie 里无登录标志） | 停；让用户登录（含 reCAPTCHA），一次一个动作 |
 | `HUMAN_VERIFICATION_REQUIRED` | Google 风控（**reCAPTCHA**「证明您不是自动程序」） | 停；用户手动完成后重试 |
 | `RATE_LIMITED` | 限流 | 停；按 `retryAfterMs` 退避 |
-| `COMPOSER_NOT_FOUND` / `SITE_CHANGED` | 站点改版、选择器漂移 | **版本问题**：`doctor --deep` 定位，修 `scripts/gmb/src/site.mjs` 并发版 |
+| `COMPOSER_NOT_FOUND` / `SITE_CHANGED` | 站点改版、选择器漂移 | **版本问题**：先 `doctor --deep` 确认；普通用户提 issue 等上游发版即可，`scripts/gmb/src/site.mjs` 的修改面向维护者 |
 | `SEND_FAILED` | 发送失败 | 重试一次 |
 | `STREAM_STALLED` | 流式停滞 / 超时 | 标注「可能截断」；可重试一次 |
 | `UPLOAD_REJECTED` | 附件被拒 | 检查格式与大小（网页端限制由 Gemini 决定） |
@@ -397,9 +406,9 @@ Linux    $XDG_STATE_HOME/gemini-brain/   （该变量未设置时通常为 ~/.lo
 
 ```bash
 # 在 skill 根目录执行（<skill-root> 换成实际安装路径）
-node "<skill-root>/scripts/gmb/cli.mjs" doctor --deep --html --json   # 定位漂移
+node "$SKILL_ROOT/scripts/gmb/cli.mjs" doctor --deep --html --json   # 定位漂移
 # 改 scripts/gmb/src/site.mjs
-node "<skill-root>/scripts/gmb/tests/sanitize.test.mjs"               # 跑单测
+node "$SKILL_ROOT/scripts/gmb/tests/sanitize.test.mjs"               # 跑单测
 ```
 
 ## 边界
