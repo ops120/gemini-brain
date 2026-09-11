@@ -40,7 +40,7 @@ Gemini 网页版相对其他「网页版大脑」的差异能力：
 | **写代码 / 页面 / 动画** | 代码进 **Canvas 面板**，可下载源文件（`.py` / `.svg` / …） | 直接提问即可 |
 | **切换模型** | Flash-Lite（极速）/ Flash（均衡）/ Pro（高级推理） | `--model Pro` |
 | **图片 / 文件分析** | 多模态输入（图片 / PDF / 文本文件，逗号分隔多个路径） | `--attach a.png,b.pdf`（大小与格式上限由 Gemini 网页端决定，被拒时报 `UPLOAD_REJECTED`） |
-| **长文本** | 单次正文 ≤ 50 KB；超过会被闸门拒绝（`PAYLOAD_TOO_LARGE`），需先摘要或分片 | `--allow-large` 放宽到 200 KB |
+| **长文本** | 单次正文 ≤ 50 KB（按 UTF-8 字节计，仅正文、不含附件）；超过会被闸门拒绝（`PAYLOAD_TOO_LARGE`），需先摘要或分片 | `--allow-large` 放宽到 200 KB；超过仍报同一失败码 |
 | **协作循环** | 规划 / 执行 / 复核的迭代协议 | `--protocol INIT\|EXECUTED`（合法值见命令面，另支持 `PLAN` / `EXECUTING` / `REVIEW` / `HANDOFF`） |
 
 > **注意**：Gemini 网页版**有模型选择器**（这点和 DeepSeek 不同）。
@@ -129,7 +129,8 @@ node "$SKILL_ROOT/scripts/gmb/cli.mjs" setup
 
 `launchPersistentContext` **不保存没有 `Expires` 属性的 cookie**（session cookie），
 这是 [microsoft/playwright#36139](https://github.com/microsoft/playwright/issues/36139)
-里维护者明确回复的**预期行为**（"真实浏览器关闭时 session cookie 也会失效"）。
+里维护者回复的**预期行为**（"真实浏览器关闭时 session cookie 也会失效"）。
+该结论基于当时的 Playwright 版本与本文实测环境；不同版本行为可能不同，**以你自己的实测为准**。
 
 而 **Google 的登录态重度依赖 session cookie**（`__Secure-1PSID` 等）——
 所以 Gemini 会频繁丢登录态，DeepSeek 却不会（它的 cookie 是持久型的）。
@@ -150,8 +151,9 @@ round2 重启 → 注入后**直接是登录态，没有任何人工介入**。
 
 ### 登录判定必须用 cookie，不能看界面
 
-⚠️ **Gemini 未登录时会自动隐藏「登录」按钮** —— 靠界面元素判断会产生**假阳性**
-（本项目开发时因此误判过两次）。
+⚠️ **不要用界面元素判断登录态**：实测中「登录」按钮的显示与否并不稳定
+（未登录时也可能看不到它），靠它判断会产生**假阳性**（本项目开发时因此误判过两次）。
+界面行为随站点版本会变，可靠判据只有下面的 cookie。
 
 可靠判据是 cookie 里**存在以下任一**（实现在 `src/browser.mjs` 的 `LOGIN_COOKIE_RE`）：
 
@@ -181,7 +183,7 @@ CLI 里由 `readLoginCookies()` 统一判定，`doctor --deep` 会报告登录 c
 ## 快速上手
 
 ```bash
-# 体检（建议每次任务前跑；--deep 才会真机探测并检查登录态）
+# 体检（建议每次任务前跑；普通模式不查登录态，要查请用 doctor --deep --json）
 node "$SKILL_ROOT/scripts/gmb/cli.mjs" doctor --json
 
 # 写检查点（session set 完整形态；protocol-state / waiting-for 只接受枚举值）
@@ -272,7 +274,8 @@ node "$SKILL_ROOT/scripts/gmb/cli.mjs" ask --prompt "分析这张图" --attach .
 **字段说明**：
 
 - `modes.model` —— **实际生效**的模型（从选择器 aria 读取）。与 `requested` 不一致时必须标注
-- `mode` —— 承载形态，**单个字符串**（不是多个值的并列），取值互斥，按优先级判定：
+- `mode` —— 承载形态，**单个字符串**（不是多个值的并列）。判定优先级：
+  `canvas`（走到 Canvas 面板）> `artifact`（有产物下载）> `chat`（纯文本）：
 
   | 值 | 含义 | `text` | `files[]` |
   | --- | --- | --- | --- |
@@ -304,7 +307,8 @@ gmb thread status --json   # 查进度（checkpoint 自动落盘）
 gmb ask --protocol HANDOFF --prompt-file handoff.txt --json
 ```
 
-- 信封由 CLI 自动封装，回复状态由代码解析
+- 信封由 CLI 自动封装，回复状态由代码解析；`--task` 首次可自取任意标识（如 `gmb_f81a`），
+  也可省略（省略时 CLI 自动生成并写入 session，后续轮次自动沿用）
 - 建议同一任务不超过 12 轮，到顶暂停问用户（这是给 agent 的使用约定，不是 CLI 参数）
 - 线程丢失 → 依据 checkpoint 发 HANDOFF，**不粘贴日志或 diff**
 - 协议模式下返回值会多一个 `protocol` 字段：
@@ -352,7 +356,7 @@ Linux    $XDG_STATE_HOME/gemini-brain/   （该变量未设置时通常为 ~/.lo
 | `threads/<workspaceId>.json` | 工作区级线程与检查点 |
 | `outputs/<workspaceId>.jsonl` | 审计：每次问答一行元数据 |
 | `logs/gmb.log` | 脱敏日志 |
-| `debug/` | 仅 `--debug` 或失败时保存的页面截图与 HTML —— ⚠️ **可能含回答正文与你的输入，未脱敏**，排障后建议删除；**不要直接上传到公开 issue** |
+| `debug/` | `--debug`、`doctor --html` **或失败时自动**保存的页面截图与 HTML（含输入与回答原文，未脱敏）—— ⚠️ **可能含回答正文与你的输入，未脱敏**，排障后建议删除；**不要直接上传到公开 issue** |
 
 **隐私要点**：
 
@@ -472,6 +476,8 @@ scripts/gmb/
 | 生视频 | ✗ | ✗ | ✓（1280×720） |
 | 模型可选 | ✗（只有思考/搜索开关） | ✓（Flash-Lite / Flash / Pro） | ✓（快速 / 2.1 Turbo） |
 | 登录持久化 | 简单 | **复杂**（需三重保险） | 简单 |
+
+> 上表涉及他仓的能力、分辨率与模型档位，仅供参考，**以各自仓库的最新 README 为准**。
 
 ## 许可证
 
