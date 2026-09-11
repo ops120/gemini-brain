@@ -30,10 +30,11 @@ Gemini 网页版相对其他「网页版大脑」的差异能力：
 
 | 能力 | 说明 | 怎么用 |
 | --- | --- | --- |
-| **生成图片** | 出图后可下载**原始分辨率**（实测 2816×1536，是页面缩略图的 10 倍以上） | 直接提问即可 |
+| **生成图片** | 出图后可下载**原始分辨率**（实测原图 2816×1536，页面缩略图仅约 885×484 —— 像素总数差约 10 倍） | 直接提问即可 |
 | **写代码 / 页面 / 动画** | 代码进 **Canvas 面板**，可下载源文件（`.py` / `.svg` / …） | 直接提问即可 |
 | **切换模型** | Flash-Lite（极速）/ Flash（均衡）/ Pro（高级推理） | `--model Pro` |
-| **图片 / 文件分析** | 多模态输入 | `--attach a.png,b.pdf` |
+| **图片 / 文件分析** | 多模态输入（图片 / PDF / 文本文件，逗号分隔多个路径） | `--attach a.png,b.pdf` |
+| **长文本** | 单次正文 ≤ 50 KB；超过会被闸门拒绝（`PAYLOAD_TOO_LARGE`），需先摘要或分片 | `--allow-large` 放宽到 200 KB |
 | **协作循环** | 规划 / 执行 / 复核的迭代协议 | `--protocol INIT\|EXECUTED` |
 
 > **注意**：Gemini 网页版**有模型选择器**（这点和 DeepSeek 不同）。
@@ -59,6 +60,13 @@ git clone <repo-url> ~/.agents/skills/gemini-brain     # 通用 / ZCode
 ```
 
 装好后对 agent 说：**「用 gemini-brain 完成首次配置」**。
+
+> **关于命令写法**：本文档里的 `gmb <命令>` 是简写，等价于
+> `node "<skill-root>/scripts/gmb/cli.mjs" <命令>`，其中 `<skill-root>` 就是 clone 下来的仓库目录
+> （例如 `~/.agents/skills/gemini-brain`）。想用短命令就自己做个别名：
+> ```bash
+> alias gmb='node "$HOME/.agents/skills/gemini-brain/scripts/gmb/cli.mjs"'
+> ```
 
 ### 首次配置
 
@@ -103,12 +111,15 @@ round2 重启 → 注入后**直接是登录态，没有任何人工介入**。
 ⚠️ **Gemini 未登录时会自动隐藏「登录」按钮** —— 靠界面元素判断会产生**假阳性**
 （本项目开发时因此误判过两次）。
 
-可靠判据是 cookie 里存在这些之一：
+可靠判据是 cookie 里**存在以下任一**（实现在 `src/browser.mjs` 的 `LOGIN_COOKIE_RE`）：
 
 ```
 SID, HSID, SSID, APISID, SAPISID, LSID, SIDCC,
 __Secure-1PSID, __Secure-1PSIDTS, __Secure-3PSID, __Secure-3PSIDTS
 ```
+
+> ⚠️ 不要用通用 cookie（如 `NID`、`_ga`）判断登录态 —— 未登录也会存在，会产生假阳性。
+> 上述名单都是 Google 的**身份 cookie**，实测登录成功时一次出现 11 个。
 
 CLI 里由 `readLoginCookies()` 统一判定，`doctor --deep` 会报告登录 cookie 数量。
 
@@ -130,6 +141,11 @@ CLI 里由 `readLoginCookies()` 统一判定，`doctor --deep` 会报告登录 c
 ```bash
 # 体检（建议每次任务前跑）
 node "<skill-root>/scripts/gmb/cli.mjs" doctor --json
+
+# 写检查点（session set 完整形态；protocol-state / waiting-for 只接受枚举值）
+#   --protocol-state: INIT | PLAN_RECEIVED | EXECUTING | EXECUTED_LOCAL | EXECUTED_SENT | DONE | BLOCKED
+#   --waiting-for:    none | BRAIN_PLAN | BRAIN_REVIEW | USER
+node "<skill-root>/scripts/gmb/cli.mjs" session set   --protocol-state PLAN_RECEIVED --waiting-for none --next-step "execute PLAN" --json
 
 # 普通问答
 node "<skill-root>/scripts/gmb/cli.mjs" ask --prompt-file ./question.txt --json
@@ -163,8 +179,8 @@ node "<skill-root>/scripts/gmb/cli.mjs" ask --prompt "分析这张图" --attach 
 | `setup` | 首次配置：装依赖 → 打开浏览器 → 人工登录 | `--timeout <ms>` |
 | `login` | 重新登录 | `--timeout <ms>` |
 | `logout` | 清除登录态（清 profile 与 storage-state） | — |
-| `doctor` | 体检 | `--deep`（真机探测页面/cookie/模型选择器）、`--html` |
-| `ask` | 提问 / 生成 | `--prompt` / `--prompt-file`、`--model`、`--attach`、`--thread`、`--protocol`、`--timeout`、`--allow-sensitive`、`--allow-large` |
+| `doctor` | 体检 | `--deep`（真机探测页面 / cookie / 模型选择器）、`--html`（额外保存页面 HTML 便于排障） |
+| `ask` | 提问 / 生成 | `--prompt` / `--prompt-file`、`--model`、`--attach`、`--thread`、`--protocol <状态>`、`--task <id>`、`--iteration <n>`、`--timeout`、`--allow-sensitive`、`--allow-large` |
 | `list-models` | 列出可用模型（打开选择器读取） | — |
 | `thread` | 线程管理 | `status` / `use <url>` / `new` |
 | `session` | 工作区级线程与检查点 | `get` / `set --protocol-state --waiting-for --next-step ...` |
@@ -172,6 +188,18 @@ node "<skill-root>/scripts/gmb/cli.mjs" ask --prompt "分析这张图" --attach 
 | `update-check` | 检查更新 | `--force` |
 
 运行方式：`node <skill-root>/scripts/gmb/cli.mjs <命令>`。
+
+### doctor 检查项
+
+| 检查项 | 含义 |
+| --- | --- |
+| `node` | Node 版本 ≥ 20 |
+| `deps` | `playwright-core` 已装到状态目录 |
+| `browser` | 找到可用的 Chromium 系浏览器（含走哪条探测路径） |
+| `stateDir` | 状态目录可写 |
+| `network` | 能访问站点（Node 直连失败不算死，会注明） |
+| `login` | **仅 `--deep` 时**：cookie 里有登录标志（列出具体 cookie） |
+| `deep` | **仅 `--deep` 时**：真机探测页面状态 / 登录 cookie / 模型选择器，并截图 |
 
 ## 返回值契约
 
@@ -193,11 +221,13 @@ node "<skill-root>/scripts/gmb/cli.mjs" ask --prompt "分析这张图" --attach 
 **字段说明**：
 
 - `modes.model` —— **实际生效**的模型（从选择器 aria 读取）。与 `requested` 不一致时必须标注
-- `mode` —— 承载形态，判断要点：
-  - `"chat"` —— 普通文本回答在 `text` 里
-  - `"canvas"` —— **代码等长内容进了 Canvas 面板**，`text` 通常为空，产物在 `files[]`
-    （这是**正常情况**，不是失败）
-  - `"artifact"` —— 有产物被下载
+- `mode` —— 承载形态，取值互斥，按优先级判定：
+
+  | 值 | 含义 | `text` | `files[]` |
+  | --- | --- | --- | --- |
+  | `"canvas"` | 代码等长内容进了 **Canvas 面板**（**正常情况，不是失败**） | 通常为空 | 通常有（面板里的源文件） |
+  | `"chat"` | 普通文本回答 | 有 | 无 |
+  | `"artifact"` | 有产物被下载（图片等），且未走 Canvas | 可能有 | 有 |
 - `files[]` —— **已下载到本地的产物**绝对路径（图片 / 代码文件）
 - `truncated` —— `true` 表示可能被截断，需如实告知用户
 
@@ -227,12 +257,12 @@ gmb thread status --json   # 查进度（checkpoint 自动落盘）
 | reason | 含义 | 动作 |
 | --- | --- | --- |
 | `LOGIN_REQUIRED` | 登录失效（cookie 里无登录标志） | 停；让用户登录（含 reCAPTCHA），一次一个动作 |
-| `CLOUDFLARE_CHALLENGE` | 人机验证 / 风控 | 停；用户手动完成后重试 |
+| `HUMAN_VERIFICATION_REQUIRED` | Google 风控（**reCAPTCHA**「证明您不是自动程序」） | 停；用户手动完成后重试 |
 | `RATE_LIMITED` | 限流 | 停；按 `retryAfterMs` 退避 |
 | `COMPOSER_NOT_FOUND` / `SITE_CHANGED` | 站点改版、选择器漂移 | **版本问题**：`doctor --deep` 定位，修 `src/site.mjs` 并发版 |
 | `SEND_FAILED` | 发送失败 | 重试一次 |
 | `STREAM_STALLED` | 流式停滞 / 超时 | 标注「可能截断」；可重试一次 |
-| `UPLOAD_REJECTED` | 附件被拒 | 检查类型 / 大小 |
+| `UPLOAD_REJECTED` | 附件被拒 | 检查格式与大小（网页端限制由 Gemini 决定） |
 | `THREAD_LOST` | 会话 404 | 新会话重问（或 HANDOFF） |
 | `LOCKED` | 浏览器被占用 | 等，或问用户 |
 | `DEPENDENCY_MISSING` | 依赖缺失 | `setup` 自愈 |
@@ -241,7 +271,7 @@ gmb thread status --json   # 查进度（checkpoint 自动落盘）
 
 完整表（含对用户话术）见 [references/failure-taxonomy.md](references/failure-taxonomy.md)。
 
-**硬规则**：绝不把失败伪装成结果；绝不静默降级模型后不告知；同类失败最多重试 2 次。
+**硬规则**：绝不把失败伪装成结果；绝不静默降级后不告知；同类失败最多重试 2 次。
 
 ## 状态与隐私
 
@@ -262,14 +292,15 @@ Linux    $XDG_STATE_HOME/gemini-brain/
 | `threads/<workspaceId>.json` | 工作区级线程与检查点 |
 | `outputs/<workspaceId>.jsonl` | 审计：每次问答一行元数据 |
 | `logs/gmb.log` | 脱敏日志 |
-| `debug/` | 仅 `--debug` / 失败时保存的页面截图与 HTML |
+| `debug/` | 仅 `--debug` 或失败时保存的页面截图与 HTML —— ⚠️ **可能含回答正文与你的输入，未脱敏**，排障后建议删除 |
 
 **隐私要点**：
 
-- 状态目录权限 `0700`，文件 `0600`
+- 状态目录权限 `0700`、文件 `0600`（**仅 Unix/macOS 生效**；Windows 依赖用户目录 ACL）
+- **不要把状态目录同步 / 备份 / 分享** —— `storage-state.json` 与 `profile/` 含登录 cookie
 - **回答正文默认不落盘**，只记录元数据；产物文件按需落盘
 - cookie / storageState **永不**导出到项目目录、**永不**进日志、**永不**进 prompt
-- `logout` 会清除 profile 与 storage-state
+- `logout` 会清除上表两者（下次使用需重新登录）
 
 ## 原理与已知坑
 

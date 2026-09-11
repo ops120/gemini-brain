@@ -178,7 +178,7 @@ async function waitLoginFlow({ timeoutMs }) {
       const shot = path.join(d.debug, `login-failed-${Date.now()}.png`);
       await page.screenshot({ path: shot }).catch(() => {});
       writeJson(d.prefs, { ...prefs, lastLoginCheckAt: nowIso() });
-      return { ok: false, reason: st?.challenge ? "CLOUDFLARE_CHALLENGE" : "LOGIN_REQUIRED", state: st, screenshot: shot };
+      return { ok: false, reason: st?.challenge ? "HUMAN_VERIFICATION_REQUIRED" : "LOGIN_REQUIRED", state: st, screenshot: shot };
     }
 
     // 登录成功：导出 storage_state（session cookie 的备份）
@@ -299,7 +299,7 @@ async function cmdDoctor() {
   if (deep && !deep.skipped) {
     if (deep.state.challenge) {
       ok = false;
-      reason = "CLOUDFLARE_CHALLENGE";
+      reason = "HUMAN_VERIFICATION_REQUIRED";
     } else if (deep.state.rateLimited) {
       ok = false;
       reason = "RATE_LIMITED";
@@ -376,7 +376,7 @@ async function cmdAsk() {
     await site.gotoSite(page, targetUrl);
 
     let st = await site.pageState(page);
-    if (st.challenge) return fail("CLOUDFLARE_CHALLENGE", "页面出现人机验证，请在浏览器里手动完成后重试。", { state: st });
+    if (st.challenge) return fail("HUMAN_VERIFICATION_REQUIRED", "页面出现人机验证，请在浏览器里手动完成后重试。", { state: st });
     const ck = await readLoginCookies(ctx);
     if (!ck.loggedIn) return fail("LOGIN_REQUIRED", "需要登录：请运行 gmb login 完成人工登录。", { state: st });
     if (st.rateLimited) return fail("RATE_LIMITED", "Gemini 提示请求过于频繁，请稍后再试。", { retryAfterMs: 300000 });

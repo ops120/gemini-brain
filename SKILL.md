@@ -136,7 +136,7 @@ node "<skill-root>/scripts/gmb/cli.mjs" ask --prompt "分析这张图" --attach 
 
 ## 何时打断用户（一次只给一个动作）
 
-- `LOGIN_REQUIRED` / `CLOUDFLARE_CHALLENGE`：网站重弹验证（含 reCAPTCHA）。让用户在打开的浏览器里完成，等「好了」再继续。
+- `LOGIN_REQUIRED` / `HUMAN_VERIFICATION_REQUIRED`：网站重弹验证（Google 用 **reCAPTCHA「证明您不是自动程序」**）。让用户在打开的浏览器里完成，等「好了」再继续。
 - `RATE_LIMITED`：说明额度受限与建议等待。
 - 需要用户对敏感数据外发做决定（`SENSITIVE_BLOCKED`）。
 
