@@ -3,7 +3,7 @@
 把 **Gemini 网页版**当作编码 agent 的**外部大脑**：它出推理、代码与图像，你的 agent 出执行。
 不需要 API key，不做逆向代理 —— 只驱动官方网页。
 
-- 由本地确定性 CLI（`gmb`）驱动，Agent 只负责调用与判断
+- 由本地 CLI 驱动（文档中简写为 `gmb`；它等价于 `node "$SKILL_ROOT/scripts/gmb/cli.mjs"`，不是安装出来的可执行文件），Agent 只负责调用与判断
 - 登录一次后**尽量**长期复用（登录持久化是本项目最复杂的一环，见下文原理；
   Google 侧策略可能导致较频繁地要求重新登录，被登出时 CLI 会停下等人）
 - 发送前有确定性脱敏闸门（私钥整段拒绝、密钥形状脱敏、家目录路径脱敏、尺寸上限）
@@ -181,7 +181,7 @@ CLI 里由 `readLoginCookies()` 统一判定，`doctor --deep` 会报告登录 c
 ## 快速上手
 
 ```bash
-# 体检（建议每次任务前跑）
+# 体检（建议每次任务前跑；--deep 才会真机探测并检查登录态）
 node "$SKILL_ROOT/scripts/gmb/cli.mjs" doctor --json
 
 # 写检查点（session set 完整形态；protocol-state / waiting-for 只接受枚举值）
@@ -358,7 +358,7 @@ Linux    $XDG_STATE_HOME/gemini-brain/   （该变量未设置时通常为 ~/.lo
 
 - 状态目录权限 `0700`、文件 `0600`（**仅 Unix/macOS 生效**；Windows 依赖用户目录 ACL）
 - **不要把状态目录同步 / 备份 / 分享** —— `storage-state.json` 与 `profile/` 含登录 cookie
-- **回答正文默认不落盘**，只记录元数据；产物文件按需落盘
+- **回答正文默认不落盘**，只记录元数据（例外：`--debug` 或失败时保存的 `debug/` 快照会含未脱敏正文，排障后请删除）；产物文件按需落盘
 - cookie / storageState **永不**导出到项目目录、**永不**进日志、**永不**进 prompt
 - `logout` 会清除 `profile/` 与 `storage-state.json` 两者（下次使用需重新登录）
 
