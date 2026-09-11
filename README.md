@@ -511,21 +511,22 @@ scripts/gmb/
 
 ## 同族项目
 
-四个「网页版大脑」共享同一套机制层，但**各自独立仓库、独立 skill、互不依赖**：
+五个「网页版大脑」共享同一套机制层，但**各自独立仓库、独立 skill、互不依赖**：
 
-| | deepseek-brain | gemini-brain | doubao-brain | grok-brain |
-| --- | --- | --- | --- | --- |
-| CLI（均为文档简写，实际入口是 `node <仓库>/scripts/<cli>/cli.mjs`） | `dsb` | `gmb` | `dbb` | `grb` |
-| 定位 | 推理 + 联网搜索 | **生图 + 代码 Canvas** | 生图 + 生视频 + 音乐/播客 | X 实时信息 + 多档模型 |
-| 生图 | ✗ | ✓（2816×1536 原图） | ✓（2048×2048） | ✗ |
-| 生视频 | ✗ | ✗ | ✓（1280×720） | ✗ |
-| 模型可选 | ✗（只有思考/搜索开关） | ✓（Flash-Lite / Flash / Pro） | ✓（快速 / 2.1 Turbo） | ✓（可用档位受订阅限制） |
-| 登录持久化 | 简单 | **复杂**（需三重保险） | 简单 | 简单 |
+| | deepseek-brain | gemini-brain | doubao-brain | grok-brain | qwen-brain |
+| --- | --- | --- | --- | --- | --- |
+| CLI（均为文档简写，实际入口是 `node <仓库>/scripts/<cli>/cli.mjs`） | `dsb` | `gmb` | `dbb` | `grb` | `qwb` |
+| 定位 | 推理 + 联网搜索 | **生图 + 代码 Canvas** | 生图 + 生视频 + 音乐/播客 | X 实时信息 + 多档模型 | 思考研究 + 中文本土信息 + 匿名可用 |
+| 生图 | ✗ | ✓（2816×1536 原图） | ✓（2048×2048） | ✗ | 登录入口（未自动化） |
+| 生视频 | ✗ | ✗ | ✓（1280×720） | ✗ | 登录入口（未自动化） |
+| 模型可选 | ✗（只有思考/搜索开关） | ✓（Flash-Lite / Flash / Pro） | ✓（快速 / 2.1 Turbo） | ✓（可用档位受订阅限制） | 模式两档（快速 / 思考研究） |
+| 登录持久化 | 简单 | **复杂**（需三重保险） | 简单 | 简单 | 简单（**可选登录，匿名可用**） |
 
 > 上表涉及他仓的信息均为**编写时**的观察，未在本仓库核实，仅供参考；
 > 请以 [deepseek-brain](https://github.com/ops120/deepseek-brain)、
-> [doubao-brain](https://github.com/ops120/doubao-brain) 与
-> [grok-brain](https://github.com/ops120/grok-brain) 的最新 README 为准。
+> [doubao-brain](https://github.com/ops120/doubao-brain)、
+> [grok-brain](https://github.com/ops120/grok-brain) 与
+> [qwen-brain](https://github.com/ops120/qwen-brain) 的最新 README 为准。
 
 ## 许可证
 
