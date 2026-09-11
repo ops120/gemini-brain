@@ -40,7 +40,7 @@ Gemini 网页版相对其他「网页版大脑」的差异能力：
 | **切换模型** | Flash-Lite（极速）/ Flash（均衡）/ Pro（高级推理） | `--model Pro` |
 | **图片 / 文件分析** | 多模态输入（图片 / PDF / 文本文件，逗号分隔多个路径） | `--attach a.png,b.pdf` |
 | **长文本** | 单次正文 ≤ 50 KB；超过会被闸门拒绝（`PAYLOAD_TOO_LARGE`），需先摘要或分片 | `--allow-large` 放宽到 200 KB |
-| **协作循环** | 规划 / 执行 / 复核的迭代协议 | `--protocol INIT\|EXECUTED`（另支持 `HANDOFF`） |
+| **协作循环** | 规划 / 执行 / 复核的迭代协议 | `--protocol INIT\|EXECUTED`（合法值见命令面，另支持 `PLAN` / `EXECUTING` / `REVIEW` / `HANDOFF`） |
 
 > **注意**：Gemini 网页版**有模型选择器**（这点和 DeepSeek 不同）。
 > `modes.model` 返回的是**从选择器 aria 读出的实际生效模型**，不是我们假设的。
@@ -64,6 +64,8 @@ Gemini 网页版相对其他「网页版大脑」的差异能力：
 
 ```bash
 mkdir -p ~/.claude/skills ~/.codex/skills ~/.agents/skills   # 已存在则无副作用
+# Windows cmd:  mkdir "%USERPROFILE%\.claude\skills"
+# PowerShell:   mkdir "$env:USERPROFILE\.claude\skills" -Force
 
 # 三条命令按你的宿主任选其一，不要全都执行
 git clone https://github.com/ops120/gemini-brain ~/.claude/skills/gemini-brain     # Claude Code
@@ -71,7 +73,8 @@ git clone https://github.com/ops120/gemini-brain ~/.codex/skills/gemini-brain   
 git clone https://github.com/ops120/gemini-brain ~/.agents/skills/gemini-brain     # 通用 / ZCode
 ```
 
-> Windows 的 cmd / PowerShell 不展开 `~`，请改用 `%USERPROFILE%\.claude\skills\...` 这类绝对路径。
+> Windows 的 cmd / PowerShell 不展开 `~`，请改用 `%USERPROFILE%` / `$env:USERPROFILE` 这类绝对路径。
+> 目标目录已存在时 `git clone` 会失败：改用 `git -C <目录> pull` 更新，或先删掉旧目录。
 
 装好后对 agent 说：**「用 gemini-brain 完成首次配置」**。
 
@@ -201,7 +204,7 @@ node "<skill-root>/scripts/gmb/cli.mjs" ask --prompt "分析这张图" --attach 
 | `login` | 重新登录 | `--timeout <ms>` |
 | `logout` | 清除登录态（清 `profile/` 与 `storage-state.json`） | — |
 | `doctor` | 体检 | `--deep`（真机探测页面 / cookie / 模型选择器）、`--html`（额外保存页面 HTML 便于排障） |
-| `ask` | 提问 / 生成 | `--prompt` / `--prompt-file`、`--model`、`--attach`、`--thread`、`--protocol <状态>`、`--task <id>`、`--iteration <n>`、`--timeout`、`--allow-sensitive`、`--allow-large` |
+| `ask` | 提问 / 生成 | `--prompt` / `--prompt-file`、`--model`、`--attach`、`--thread new`（省略则复用当前线程）、`--protocol <状态>`、`--task <id>`、`--iteration <n>`、`--timeout`、`--allow-sensitive`、`--allow-large` |
 | `list-models` | 列出可用模型（打开选择器读取） | — |
 | `thread` | 线程管理 | `status` / `use <url>` / `new` |
 | `session` | 工作区级线程与检查点 | `get` / `set --protocol-state --waiting-for --next-step ...` |
@@ -269,7 +272,7 @@ node "<skill-root>/scripts/gmb/cli.mjs" ask --prompt "分析这张图" --attach 
 
 ```bash
 gmb ask --protocol INIT --task gmb_f81a --iteration 0 --prompt-file goal.txt --json
-#   → protocol.reply：PLAN = 拿到方案 | BLOCKED = 停下问用户
+#   → protocol.reply.state：PLAN = 拿到方案 | BLOCKED = 停下问用户
 
 gmb ask --protocol EXECUTED --iteration 1 --prompt-file report.txt --json
 #   → DONE = 结束 | PLAN = 还有下一轮 | BLOCKED = 停下
@@ -284,7 +287,9 @@ gmb ask --protocol HANDOFF --prompt-file handoff.txt --json
 - 信封由 CLI 自动封装，回复状态由代码解析
 - 建议同一任务不超过 12 轮，到顶暂停问用户（这是给 agent 的使用约定，不是 CLI 参数）
 - 线程丢失 → 依据 checkpoint 发 HANDOFF，**不粘贴日志或 diff**
-- 协议模式下返回值会多一个 `protocol` 字段（`sent` / `reply` / `taskId` / `iteration`），
+- 协议模式下返回值会多一个 `protocol` 字段：
+  `{ sent, taskId, iteration, reply }`，其中 `reply` 是对象 `{ state, taskId, iteration }`
+  （`state` 取 `PLAN` / `DONE` / `BLOCKED`，无协议回复时为 `null`），
   详见 [references/protocol.md](references/protocol.md)
 
 ## 失败处理
@@ -294,14 +299,14 @@ gmb ask --protocol HANDOFF --prompt-file handoff.txt --json
 | `LOGIN_REQUIRED` | 登录失效（cookie 里无登录标志） | 停；让用户登录（含 reCAPTCHA），一次一个动作 |
 | `HUMAN_VERIFICATION_REQUIRED` | Google 风控（**reCAPTCHA**「证明您不是自动程序」） | 停；用户手动完成后重试 |
 | `RATE_LIMITED` | 限流 | 停；按 `retryAfterMs` 退避 |
-| `COMPOSER_NOT_FOUND` / `SITE_CHANGED` | 站点改版、选择器漂移 | **版本问题**：`doctor --deep` 定位，修 `src/site.mjs` 并发版 |
+| `COMPOSER_NOT_FOUND` / `SITE_CHANGED` | 站点改版、选择器漂移 | **版本问题**：`doctor --deep` 定位，修 `scripts/gmb/src/site.mjs` 并发版 |
 | `SEND_FAILED` | 发送失败 | 重试一次 |
 | `STREAM_STALLED` | 流式停滞 / 超时 | 标注「可能截断」；可重试一次 |
 | `UPLOAD_REJECTED` | 附件被拒 | 检查格式与大小（网页端限制由 Gemini 决定） |
 | `THREAD_LOST` | 会话 404 | 新会话重问（或 HANDOFF） |
 | `LOCKED` | 浏览器被占用 | 等，或问用户 |
 | `DEPENDENCY_MISSING` | 依赖缺失 | `setup` 自愈 |
-| `SENSITIVE_BLOCKED` | 闸门拦截 | 移除敏感内容；确需发送要用户明确同意 |
+| `SENSITIVE_BLOCKED` | 闸门拦截 | 移除敏感内容；确需发送须用户明确同意后加 `--allow-sensitive`（仅关闭脱敏，**私钥块仍拒绝**） |
 | `PAYLOAD_TOO_LARGE` | 正文超 50 KB | 摘要或分片；`--allow-large` 放宽到 200 KB |
 
 完整表（含对用户话术）见 [references/failure-taxonomy.md](references/failure-taxonomy.md)。
@@ -335,7 +340,7 @@ Linux    $XDG_STATE_HOME/gemini-brain/   （该变量未设置时通常为 ~/.lo
 - **不要把状态目录同步 / 备份 / 分享** —— `storage-state.json` 与 `profile/` 含登录 cookie
 - **回答正文默认不落盘**，只记录元数据；产物文件按需落盘
 - cookie / storageState **永不**导出到项目目录、**永不**进日志、**永不**进 prompt
-- `logout` 会清除上表两者（下次使用需重新登录）
+- `logout` 会清除 `profile/` 与 `storage-state.json` 两者（下次使用需重新登录）
 
 ## 原理与已知坑
 
@@ -363,7 +368,7 @@ Linux    $XDG_STATE_HOME/gemini-brain/   （该变量未设置时通常为 ~/.lo
    > 只判断聊天区文本会**死等超时**。
 3. **生成是「一次性返回 + 界面打字机播放」**。只等网络结束会在**动画播到一半时**抓到答案 ——
    所以「网络结束」与「文本稳定」两个条件都要满足（这点和 DeepSeek 的纯流式不同）。
-4. **产物要下载才有原始分辨率**。三种取法实测差了 12 倍：
+4. **产物要下载才有原始分辨率**。三种取法实测差了 12 倍（**指文件大小**，像素总数差约 10 倍）：
 
    | 方式 | 分辨率 | 大小 |
    | --- | --- | --- |
