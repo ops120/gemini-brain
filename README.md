@@ -41,7 +41,7 @@ Gemini 网页版相对其他「网页版大脑」的差异能力：
 | **切换模型** | Flash-Lite（极速）/ Flash（均衡）/ Pro（高级推理） | `--model Pro` |
 | **图片 / 文件分析** | 多模态输入（图片 / PDF / 文本文件，逗号分隔多个路径） | `--attach a.png,b.pdf`（大小与格式上限由 Gemini 网页端决定，被拒时报 `UPLOAD_REJECTED`） |
 | **长文本** | 单次正文 ≤ 50 KB（按 UTF-8 字节计，仅正文、不含附件）；超过会被闸门拒绝（`PAYLOAD_TOO_LARGE`），需先摘要或分片 | `--allow-large` 放宽到 200 KB；超过仍报同一失败码 |
-| **协作循环** | 规划 / 执行 / 复核的迭代协议 | `--protocol INIT\|EXECUTED`（合法值见命令面，另支持 `PLAN` / `EXECUTING` / `REVIEW` / `HANDOFF`） |
+| **协作循环** | 规划 / 执行 / 复核的迭代协议 | `--protocol <状态>`（合法值见命令面：`INIT` / `PLAN` / `EXECUTING` / `EXECUTED` / `REVIEW` / `HANDOFF`） |
 
 > **注意**：Gemini 网页版**有模型选择器**（这点和 DeepSeek 不同）。
 > `modes.model` 返回的是**从选择器 aria 读出的实际生效模型**，不是我们假设的。
@@ -78,7 +78,7 @@ git clone https://github.com/ops120/gemini-brain ~/.agents/skills/gemini-brain  
 
 > Windows 的 cmd / PowerShell 不展开 `~`，请改用绝对路径，例如：
 > ```bat
-> :: cmd
+> REM cmd
 > git clone https://github.com/ops120/gemini-brain "%USERPROFILE%\.agents\skills\gemini-brain"
 > ```
 > ```powershell
@@ -103,8 +103,20 @@ git clone https://github.com/ops120/gemini-brain ~/.agents/skills/gemini-brain  
 > alias gmb='node "$SKILL_ROOT/scripts/gmb/cli.mjs"'
 > ```
 > 不配别名也可以，把示例里的 `gmb` 整体替换成 `node "$SKILL_ROOT/scripts/gmb/cli.mjs"`。
-> 想长期生效就把这几行写进 `~/.bashrc` / `~/.zshrc`；Windows cmd / PowerShell 没有 `alias`，
-> 请直接用完整 `node "..."` 路径，或自建 `.cmd` 包装脚本。
+> 想长期生效就把这几行写进 `~/.bashrc` / `~/.zshrc`。
+>
+> **Windows 用户注意**：cmd / PowerShell **不展开 `$SKILL_ROOT` 这种 bash 变量**，也没有 `alias`。
+> 两种可行做法：
+> ```bat
+> REM cmd：每次直接用完整路径（把路径换成你的实际安装位置）
+> node "%USERPROFILE%\.agents\skills\gemini-brain\scripts\gmb\cli.mjs" doctor --json
+> ```
+> ```powershell
+# PowerShell：可先设变量，同一会话内后续命令都能用
+$SKILL_ROOT = "$env:USERPROFILE\.agents\skills\gemini-brain"
+node "$SKILL_ROOT\scripts\gmb\cli.mjs" doctor --json
+```
+> 把上面几行写进 PowerShell 的 `$PROFILE` 即可长期生效。
 
 ### 首次配置
 
@@ -130,7 +142,8 @@ node "$SKILL_ROOT/scripts/gmb/cli.mjs" setup
 `launchPersistentContext` **不保存没有 `Expires` 属性的 cookie**（session cookie），
 这是 [microsoft/playwright#36139](https://github.com/microsoft/playwright/issues/36139)
 里维护者回复的**预期行为**（"真实浏览器关闭时 session cookie 也会失效"）。
-该结论基于当时的 Playwright 版本与本文实测环境；不同版本行为可能不同，**以你自己的实测为准**。
+该结论基于编写时的 Playwright 版本（`playwright-core` ^1.40）与本文实测环境；不同版本行为可能不同，
+**以你自己的实测为准**（`doctor --deep` 可打印实际依赖版本）。
 
 而 **Google 的登录态重度依赖 session cookie**（`__Secure-1PSID` 等）——
 所以 Gemini 会频繁丢登录态，DeepSeek 却不会（它的 cookie 是持久型的）。
@@ -164,8 +177,6 @@ SID, HSID, SSID, APISID, SAPISID, LSID, SIDCC,
 __Secure-1PSID, __Secure-1PSIDTS, __Secure-3PSID, __Secure-3PSIDTS
 ```
 
-> ⚠️ 不要用通用 cookie（如 `NID`、`_ga`）判断登录态 —— 未登录也会存在，会产生假阳性。
-> 上述名单都是 Google 的**身份 cookie**，实测登录成功时一次出现 11 个。
 
 CLI 里由 `readLoginCookies()` 统一判定，`doctor --deep` 会报告登录 cookie 数量。
 
@@ -273,9 +284,9 @@ node "$SKILL_ROOT/scripts/gmb/cli.mjs" ask --prompt "分析这张图" --attach .
 }
 ```
 
-> `file` 是**运行时字段**：运行时值是状态目录下的绝对路径（Windows 形如 `%LOCALAPPDATA%\gemini-brain\downloads\<workspaceId>\xxx.png`），
-> 上面 JSON 里的尖括号是占位符说明，不是可复制的字面量。，即 `%LOCALAPPDATA%\gemini-brain\downloads\<workspaceId>\…`（Windows）
-> 或对应的 macOS / Linux 路径，不是项目目录。
+> `file` 是**运行时字段**，运行时值为状态目录下的绝对路径（Windows 形如
+> `%LOCALAPPDATA%\gemini-brain\downloads\<workspaceId>\xxx.png`，macOS / Linux 对应各自的状态目录）；
+> 上面 JSON 里的尖括号是占位符说明，不是可复制的字面量。
 
 **字段说明**：
 
@@ -335,7 +346,7 @@ gmb ask --protocol HANDOFF --prompt-file handoff.txt --json
 | `UPLOAD_REJECTED` | 附件被拒 | 检查格式与大小（网页端限制由 Gemini 决定） |
 | `THREAD_LOST` | 会话 404 | 新会话重问（或 HANDOFF） |
 | `LOCKED` | 浏览器被占用 | 等，或问用户 |
-| `DEPENDENCY_MISSING` | 依赖缺失 | `setup` 自愈 |
+| `DEPENDENCY_MISSING` | 依赖缺失 | 运行 `setup` 重装依赖（该命令会打开浏览器，可能需要人工登录） |
 | `SENSITIVE_BLOCKED` | 闸门拦截 | 移除敏感内容；确需发送须用户明确同意后加 `--allow-sensitive`（仅关闭脱敏，**私钥块仍拒绝**） |
 | `PAYLOAD_TOO_LARGE` | 正文超 50 KB | 摘要或分片；`--allow-large` 放宽到 200 KB |
 
@@ -364,7 +375,7 @@ Linux    $XDG_STATE_HOME/gemini-brain/   （该变量未设置时通常为 ~/.lo
 | `threads/<workspaceId>.json` | 工作区级线程与检查点 |
 | `outputs/<workspaceId>.jsonl` | 审计：每次问答一行元数据 |
 | `logs/gmb.log` | 脱敏日志 |
-| `debug/` | `--debug`、`doctor --html` **或失败时自动**保存的页面截图与 HTML（含输入与回答原文，未脱敏）—— ⚠️ **可能含回答正文与你的输入，未脱敏**，排障后建议删除；**不要直接上传到公开 issue** |
+| `debug/` | `--debug`、`doctor --html` **或失败时自动**保存的页面截图与 HTML —— ⚠️ **含你的输入与回答原文、未脱敏**；失败自动保存是默认行为（当前无开关可关），排障后**务必删除**，且**不要上传到公开 issue** |
 
 **隐私要点**：
 
@@ -438,7 +449,7 @@ node "$SKILL_ROOT/scripts/gmb/cli.mjs" doctor --deep --json          # 改完必
 node "$SKILL_ROOT/scripts/gmb/tests/sanitize.test.mjs"               # 仅覆盖脱敏/限额，与选择器无关
 ```
 
-> 若站点连登录流程或浏览器行为也改了，可能还需调整 `src/browser.mjs`。
+> 若站点连登录流程或浏览器行为也改了，可能还需调整 `scripts/gmb/src/browser.mjs`。
 
 ## 边界
 
@@ -486,7 +497,8 @@ scripts/gmb/
 | 模型可选 | ✗（只有思考/搜索开关） | ✓（Flash-Lite / Flash / Pro） | ✓（快速 / 2.1 Turbo） |
 | 登录持久化 | 简单 | **复杂**（需三重保险） | 简单 |
 
-> 上表涉及他仓的能力、分辨率与模型档位，仅供参考，**以各自仓库的最新 README 为准**。
+> 上表涉及他仓的信息均为**编写时**的观察，未在本仓库核实，仅供参考；
+> 请以 [deepseek-brain](https://github.com/ops120/deepseek-brain) 与 [doubao-brain](https://github.com/ops120/doubao-brain) 的最新 README 为准。
 
 ## 许可证
 
