@@ -155,7 +155,9 @@ round2 重启 → 注入后**直接是登录态，没有任何人工介入**。
 （未登录时也可能看不到它），靠它判断会产生**假阳性**（本项目开发时因此误判过两次）。
 界面行为随站点版本会变，可靠判据只有下面的 cookie。
 
-可靠判据是 cookie 里**存在以下任一**（实现在 `src/browser.mjs` 的 `LOGIN_COOKIE_RE`）：
+可靠判据是 cookie 里**存在以下任一身份 cookie**（实现在 `src/browser.mjs` 的 `LOGIN_COOKIE_RE`）。
+这份名单来自登录成功时的实测比对（一次出现 11 个）；**不要**用 `NID`、`_ga` 这类通用 cookie
+判断登录态 —— 它们未登录时也存在，会产生假阳性：
 
 ```
 SID, HSID, SSID, APISID, SAPISID, LSID, SIDCC,
@@ -181,6 +183,9 @@ CLI 里由 `readLoginCookies()` 统一判定，`doctor --deep` 会报告登录 c
 ```
 
 ## 快速上手
+
+> **以下命令假定你已按安装章节设置 `SKILL_ROOT`**（或已配好别名）；
+> 没设过就直接复制会因变量为空而报错，请先把占位路径换成你的实际安装目录。
 
 ```bash
 # 体检（建议每次任务前跑；普通模式不查登录态，要查请用 doctor --deep --json）
@@ -217,7 +222,7 @@ node "$SKILL_ROOT/scripts/gmb/cli.mjs" ask --prompt "分析这张图" --attach .
 ## 命令面
 
 `--json`（机器可读）与 `--debug`（保存页面 HTML）为全局选项；
-`--keep-open`（保留浏览器窗口）只对会打开浏览器的命令（`ask` / `doctor --deep` / `setup` / `login` / `list-models`）有意义。
+`--keep-open`（保留浏览器窗口）只对会打开浏览器的命令（`ask` / `setup` / `login` / `list-models`，以及带 `--deep` 的 `doctor`）有意义。
 各命令的完整参数以 `--help` 为准。示例使用 `gmb` 简写，未配别名时请展开为 `node "$SKILL_ROOT/scripts/gmb/cli.mjs"`。
 
 | 命令 | 作用 | 关键参数 |
@@ -268,7 +273,8 @@ node "$SKILL_ROOT/scripts/gmb/cli.mjs" ask --prompt "分析这张图" --attach .
 }
 ```
 
-> `file` 是**状态目录下**的绝对路径，即 `%LOCALAPPDATA%\gemini-brain\downloads\<workspaceId>\…`（Windows）
+> `file` 是**运行时字段**：运行时值是状态目录下的绝对路径（Windows 形如 `%LOCALAPPDATA%\gemini-brain\downloads\<workspaceId>\xxx.png`），
+> 上面 JSON 里的尖括号是占位符说明，不是可复制的字面量。，即 `%LOCALAPPDATA%\gemini-brain\downloads\<workspaceId>\…`（Windows）
 > 或对应的 macOS / Linux 路径，不是项目目录。
 
 **字段说明**：
@@ -334,6 +340,8 @@ gmb ask --protocol HANDOFF --prompt-file handoff.txt --json
 | `PAYLOAD_TOO_LARGE` | 正文超 50 KB | 摘要或分片；`--allow-large` 放宽到 200 KB |
 
 完整表（含对用户话术）见 [references/failure-taxonomy.md](references/failure-taxonomy.md)。
+
+遇到站点改版等问题，可在 <https://github.com/ops120/gemini-brain/issues> 反馈。
 
 **硬规则**：绝不把失败伪装成结果；绝不静默降级后不告知；同类失败最多重试 2 次。
 
@@ -446,6 +454,7 @@ node "$SKILL_ROOT/scripts/gmb/tests/sanitize.test.mjs"               # 仅覆盖
 ## 项目结构
 
 ```
+LICENSE                 MIT 许可证
 SKILL.md                给 agent 的说明书
 README.md               本文件
 references/
@@ -470,7 +479,7 @@ scripts/gmb/
 
 | | deepseek-brain | gemini-brain | doubao-brain |
 | --- | --- | --- | --- |
-| CLI | `dsb` | `gmb` | `dbb` |
+| CLI（均为文档简写，实际入口是 `node <仓库>/scripts/<cli>/cli.mjs`） | `dsb` | `gmb` | `dbb` |
 | 定位 | 推理 + 联网搜索 | **生图 + 代码 Canvas** | 生图 + 生视频 + 音乐/播客 |
 | 生图 | ✗ | ✓（2816×1536 原图） | ✓（2048×2048） |
 | 生视频 | ✗ | ✗ | ✓（1280×720） |
