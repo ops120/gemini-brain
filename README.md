@@ -39,7 +39,7 @@ Gemini 网页版相对其他「网页版大脑」的差异能力：
 | **生成图片** | 出图后可下载**原始分辨率**（实测原图 2816×1536，页面缩略图仅约 885×484 —— 像素总数差约 10 倍） | 直接提问即可 |
 | **写代码 / 页面 / 动画** | 代码进 **Canvas 面板**，可下载源文件（`.py` / `.svg` / …） | 直接提问即可 |
 | **切换模型** | Flash-Lite（极速）/ Flash（均衡）/ Pro（高级推理） | `--model Pro` |
-| **图片 / 文件分析** | 多模态输入（图片 / PDF / 文本文件，逗号分隔多个路径） | `--attach a.png,b.pdf` |
+| **图片 / 文件分析** | 多模态输入（图片 / PDF / 文本文件，逗号分隔多个路径） | `--attach a.png,b.pdf`（大小与格式上限由 Gemini 网页端决定，被拒时报 `UPLOAD_REJECTED`） |
 | **长文本** | 单次正文 ≤ 50 KB；超过会被闸门拒绝（`PAYLOAD_TOO_LARGE`），需先摘要或分片 | `--allow-large` 放宽到 200 KB |
 | **协作循环** | 规划 / 执行 / 复核的迭代协议 | `--protocol INIT\|EXECUTED`（合法值见命令面，另支持 `PLAN` / `EXECUTING` / `REVIEW` / `HANDOFF`） |
 
@@ -57,7 +57,7 @@ Gemini 网页版相对其他「网页版大脑」的差异能力：
 - 系统已装 **Chrome / Edge / Brave / Chromium** 任一（自动探测，不下载 Chromium）
 - 能访问 `gemini.google.com` 的**浏览器**
 - 一个 Google 账号 —— **建议用小号**：Google 对自动化浏览器有风控，主账号（Gmail / Drive / 相册）被风控代价较大
-- **需要图形界面**：首次配置会打开有头浏览器请你本人登录（含 reCAPTCHA），纯 SSH / 容器环境无法完成
+- **需要图形界面**：首次配置要打开有头浏览器请你本人登录（含 reCAPTCHA），之后**每次问答也会真实打开浏览器窗口**（问完自动关闭）；后续风控重弹验证同样需人工处理。纯 SSH / 容器环境无法使用
 
 ### 作为 Skill 安装
 
@@ -76,16 +76,24 @@ git clone https://github.com/ops120/gemini-brain ~/.codex/skills/gemini-brain   
 git clone https://github.com/ops120/gemini-brain ~/.agents/skills/gemini-brain     # 通用 / ZCode
 ```
 
-> Windows 的 cmd / PowerShell 不展开 `~`，请改用 `%USERPROFILE%` / `$env:USERPROFILE` 这类绝对路径。
+> Windows 的 cmd / PowerShell 不展开 `~`，请改用绝对路径，例如：
+> ```bat
+> :: cmd
+> git clone https://github.com/ops120/gemini-brain "%USERPROFILE%\.agents\skills\gemini-brain"
+> ```
+> ```powershell
+> # PowerShell
+> git clone https://github.com/ops120/gemini-brain "$env:USERPROFILE\.agents\skills\gemini-brain"
+> ```
 > 目标目录已存在时 `git clone` 会失败：改用 `git -C <目录> pull` 更新，或先删掉旧目录。
 
 装好后对 agent 说：**「用 gemini-brain 完成首次配置」**。
 
 > **关于命令写法（重要）**：本文档里的 `gmb <命令>` 是**文档简写**，并非已安装的命令，
 > 等价于 `node "$SKILL_ROOT/scripts/gmb/cli.mjs" <命令>`，
-> 其中 `SKILL_ROOT` 是你 clone 下来的仓库目录（例如 `~/.agents/skills/gemini-brain`）。
+> 其中 `SKILL_ROOT` 就是你 clone 下来的仓库目录。
 >
-> **推荐先设变量再配别名**（按你的宿主任选一行改）：
+> **推荐先设变量再配别名**（路径按你的实际安装位置改）：
 > ```bash
 > # Claude Code：SKILL_ROOT="$HOME/.claude/skills/gemini-brain"
 > # Codex：      SKILL_ROOT="$HOME/.codex/skills/gemini-brain"
@@ -95,6 +103,8 @@ git clone https://github.com/ops120/gemini-brain ~/.agents/skills/gemini-brain  
 > alias gmb='node "$SKILL_ROOT/scripts/gmb/cli.mjs"'
 > ```
 > 不配别名也可以，把示例里的 `gmb` 整体替换成 `node "$SKILL_ROOT/scripts/gmb/cli.mjs"`。
+> 想长期生效就把这几行写进 `~/.bashrc` / `~/.zshrc`；Windows cmd / PowerShell 没有 `alias`，
+> 请直接用完整 `node "..."` 路径，或自建 `.cmd` 包装脚本。
 
 ### 首次配置
 
@@ -108,7 +118,8 @@ node "$SKILL_ROOT/scripts/gmb/cli.mjs" setup
 4. 导出登录态并冒烟验证
 
 > **登录时会遇到 reCAPTCHA**（"证明您不是自动程序"）—— 这是 Google 对自动化浏览器的常规风控，
-> **必须你本人点击**（agent 不代点验证码：既违反条款也无意义）。通过后长期有效。
+> **必须你本人点击**（agent 不代点验证码：既违反条款也无意义）。通过后通常可复用一段时间，
+> 但**不保证长期有效**——服务端会话过期或风控触发时仍会要求重新登录，届时 CLI 会停下等人。
 
 ## 登录持久化（重要）
 
@@ -204,7 +215,7 @@ node "$SKILL_ROOT/scripts/gmb/cli.mjs" ask --prompt "分析这张图" --attach .
 ## 命令面
 
 `--json`（机器可读）与 `--debug`（保存页面 HTML）为全局选项；
-`--keep-open`（保留浏览器窗口）只对会打开浏览器的命令（`ask` / `doctor` / `setup` / `login` / `list-models`）有意义。
+`--keep-open`（保留浏览器窗口）只对会打开浏览器的命令（`ask` / `doctor --deep` / `setup` / `login` / `list-models`）有意义。
 各命令的完整参数以 `--help` 为准。示例使用 `gmb` 简写，未配别名时请展开为 `node "$SKILL_ROOT/scripts/gmb/cli.mjs"`。
 
 | 命令 | 作用 | 关键参数 |
@@ -212,7 +223,7 @@ node "$SKILL_ROOT/scripts/gmb/cli.mjs" ask --prompt "分析这张图" --attach .
 | `setup` | 首次配置：装依赖 → 打开浏览器 → 人工登录 | `--timeout <ms>` |
 | `login` | 重新登录 | `--timeout <ms>` |
 | `logout` | 清除登录态（清 `profile/` 与 `storage-state.json`） | — |
-| `doctor` | 体检 | `--deep`（真机探测页面 / cookie / 模型选择器）、`--html`（额外保存页面 HTML 便于排障） |
+| `doctor` | 体检 | `--deep`（真机探测页面/cookie/模型选择器；**同时才会检查登录态**）、`--html`（doctor 专用的页面 HTML 转储；全局 `--debug` 是通用排障快照） |
 | `ask` | 提问 / 生成 | `--prompt` / `--prompt-file`、`--model`、`--attach`、`--thread new`（省略则复用当前线程）、`--protocol <状态>`、`--task <id>`、`--iteration <n>`、`--timeout`、`--allow-sensitive`、`--allow-large` |
 | `list-models` | 列出可用模型（打开选择器读取） | — |
 | `thread` | 线程管理 | `status` / `use <url>` / `new` |
@@ -397,19 +408,25 @@ Linux    $XDG_STATE_HOME/gemini-brain/   （该变量未设置时通常为 ~/.lo
    需要自写 DOM 遍历（上标压紧、行内不换行、块级换行）。
 8. **会话 URL 格式**：`https://gemini.google.com/app/<16位十六进制>`；
    无 ID 的 `/app` 是**新对话页**，不是会话。
-9. **模型选择器的 aria 用中文弯引号**：`打开模式选择器，当前模式为"Pro"` ——
-   正则必须兼容直引号与弯引号（`“”` / `""`）。
+9. **模型选择器的 aria 用中文弯引号**：如 `打开模式选择器，当前模式为“Pro”` ——
+   正则必须同时兼容直引号与弯引号（`“”` / `""`）。
 
 ### 站点改版了怎么办
 
-唯一需要改的地方是 **`scripts/gmb/src/site.mjs`**：
+**普通用户**：跑 `doctor --deep --json` 确认是选择器漂移（报 `SITE_CHANGED` / `COMPOSER_NOT_FOUND`）后，
+提 issue 等上游发版即可，不需要自己改代码。
+
+**维护者**：站点层改动通常只需改 **`scripts/gmb/src/site.mjs`**（选择器集中在此）：
 
 ```bash
-# 在 skill 根目录执行（<skill-root> 换成实际安装路径）
+# 在 skill 根目录执行
 node "$SKILL_ROOT/scripts/gmb/cli.mjs" doctor --deep --html --json   # 定位漂移
 # 改 scripts/gmb/src/site.mjs
-node "$SKILL_ROOT/scripts/gmb/tests/sanitize.test.mjs"               # 跑单测
+node "$SKILL_ROOT/scripts/gmb/cli.mjs" doctor --deep --json          # 改完必须重跑，确认探测通过
+node "$SKILL_ROOT/scripts/gmb/tests/sanitize.test.mjs"               # 仅覆盖脱敏/限额，与选择器无关
 ```
+
+> 若站点连登录流程或浏览器行为也改了，可能还需调整 `src/browser.mjs`。
 
 ## 边界
 
