@@ -14,9 +14,9 @@
 本仓库根目录就是 skill 目录：
 
 ```bash
-git clone <repo-url> ~/.claude/skills/gemini-brain     # Claude Code
-git clone <repo-url> ~/.codex/skills/gemini-brain      # Codex
-git clone <repo-url> ~/.agents/skills/gemini-brain     # 通用
+git clone https://github.com/ops120/gemini-brain ~/.claude/skills/gemini-brain     # Claude Code
+git clone https://github.com/ops120/gemini-brain ~/.codex/skills/gemini-brain      # Codex
+git clone https://github.com/ops120/gemini-brain ~/.agents/skills/gemini-brain     # 通用
 ```
 
 ## 定位 skill 根

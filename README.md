@@ -54,9 +54,9 @@ Gemini 网页版相对其他「网页版大脑」的差异能力：
 ### 作为 Skill 安装
 
 ```bash
-git clone <repo-url> ~/.claude/skills/gemini-brain     # Claude Code
-git clone <repo-url> ~/.codex/skills/gemini-brain      # Codex
-git clone <repo-url> ~/.agents/skills/gemini-brain     # 通用 / ZCode
+git clone https://github.com/ops120/gemini-brain ~/.claude/skills/gemini-brain     # Claude Code
+git clone https://github.com/ops120/gemini-brain ~/.codex/skills/gemini-brain      # Codex
+git clone https://github.com/ops120/gemini-brain ~/.agents/skills/gemini-brain     # 通用 / ZCode
 ```
 
 装好后对 agent 说：**「用 gemini-brain 完成首次配置」**。
