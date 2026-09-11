@@ -390,30 +390,60 @@ export async function waitForAnswer(page, { timeoutMs = 300000, pollMs = 2500, s
 /* ---------------------------------- 产物下载 --------------------------------- */
 
 /**
+ * 下载按钮候选，按确定性偏好排序：
+ * 「完整尺寸」>「下载 SVG / 代码 / 图片」> 其他下载；同级优先视口内，最后按 DOM 顺序。
+ * idx 是 querySelectorAll 的原始下标，同一次页面状态下跨 evaluate 稳定。
+ */
+export const DOWNLOAD_BUTTONS_FN = () => {
+  const vh = window.innerHeight;
+  const vw = window.innerWidth;
+  const rank = (label) =>
+    /完整尺寸|full/i.test(label) ? 0 : /下载\s*(SVG|代码|图片)|download\s*(svg|code|image)/i.test(label) ? 1 : 2;
+  return [...document.querySelectorAll("button, [role=button]")]
+    .map((b, idx) => {
+      const r = b.getBoundingClientRect();
+      const inView = r.width > 0 && r.height > 0 && r.top >= 0 && r.left >= 0 && r.bottom <= vh && r.right <= vw;
+      return {
+        idx,
+        label: `${b.getAttribute("aria-label") ?? ""} ${b.getAttribute("title") ?? ""}`.trim(),
+        visible: r.width > 0 && r.height > 0,
+        inView,
+      };
+    })
+    .filter((b) => b.visible && /下载|download/i.test(b.label))
+    .sort((a, b) => rank(a.label) - rank(b.label) || Number(b.inView) - Number(a.inView) || a.idx - b.idx);
+};
+
+/**
+ * 把候选按钮滚进视野并做命中测试，返回可点击坐标。
+ * 面板较高时按钮可能整个在视口外，直接按 rect 点击会落空（实测 SVG 面板踩过）。
+ */
+export const LOCATE_BUTTON_FN = async ({ idx, label }) => {
+  const b = [...document.querySelectorAll("button, [role=button]")][idx];
+  if (!b) return null;
+  const now = `${b.getAttribute("aria-label") ?? ""} ${b.getAttribute("title") ?? ""}`.trim();
+  if (now !== label) return null; // DOM 变了，放弃这个候选
+  b.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+  await new Promise((r) => setTimeout(r, 250)); // 等滚动/重排落定
+  const r = b.getBoundingClientRect();
+  const x = Math.round(r.x + r.width / 2);
+  const y = Math.round(r.y + r.height / 2);
+  const hit = document.elementFromPoint(x, y);
+  return {
+    label,
+    x,
+    y,
+    hitSelf: !!hit && (hit === b || b.contains(hit) || hit.closest("button, [role=button]") === b),
+  };
+};
+
+/**
  * 点击面板的下载按钮，把服务器原始文件存到 outDir。
  * 适用于：生成的图片（下载完整尺寸的图片）、SVG（下载 SVG）、代码（下载代码）
  */
 export async function downloadArtifact(page, ctx, outDir, { timeoutMs = 60000 } = {}) {
-  const buttons = await page.evaluate(() =>
-    [...document.querySelectorAll("button, [role=button]")]
-      .map((b) => {
-        const r = b.getBoundingClientRect();
-        return {
-          label: `${b.getAttribute("aria-label") ?? ""} ${b.getAttribute("title") ?? ""}`.trim(),
-          visible: r.width > 0 && r.height > 0,
-          x: Math.round(r.x + r.width / 2),
-          y: Math.round(r.y + r.height / 2),
-        };
-      })
-      .filter((b) => b.visible && /下载|download/i.test(b.label))
-  );
-  if (!buttons.length) return { ok: false, reason: "NOT_FOUND", message: "页面上没有下载按钮" };
-
-  // 优先「完整尺寸」/「下载 SVG」/「下载代码」这类明确的，否则第一个
-  const btn =
-    buttons.find((b) => /完整尺寸|full/i.test(b.label)) ??
-    buttons.find((b) => /下载\s*(SVG|代码|图片)|download\s*(svg|code|image)/i.test(b.label)) ??
-    buttons[0];
+  const candidates = await page.evaluate(DOWNLOAD_BUTTONS_FN);
+  if (!candidates.length) return { ok: false, reason: "NOT_FOUND", message: "页面上没有下载按钮" };
 
   const saved = [];
   const onDownload = async (d) => {
@@ -426,15 +456,31 @@ export async function downloadArtifact(page, ctx, outDir, { timeoutMs = 60000 } 
     }
   };
   page.on("download", onDownload);
-  try {
-    await page.mouse.click(btn.x, btn.y);
+
+  const waitSaved = async (ms) => {
     const started = Date.now();
-    while (Date.now() - started < timeoutMs) {
-      await page.waitForTimeout(800);
-      if (saved.length) break;
+    while (!saved.length && Date.now() - started < ms) await page.waitForTimeout(800);
+    return saved.length > 0;
+  };
+
+  let used = null;
+  const diag = [];
+  try {
+    for (const cand of candidates.slice(0, 3)) {
+      const loc = await page.evaluate(LOCATE_BUTTON_FN, cand).catch(() => null);
+      if (!loc) continue;
+      diag.push(`${loc.label}@${loc.x},${loc.y}${loc.hitSelf ? "" : "(被遮挡)"}`);
+      if (!loc.hitSelf) continue; // 命中测试失败：按钮被遮挡或仍在动，换下一个候选
+      await page.mouse.click(loc.x, loc.y);
+      if (await waitSaved(Math.min(timeoutMs, 20000))) {
+        used = loc.label;
+        break;
+      }
     }
   } finally {
     page.off("download", onDownload);
   }
-  return saved.length ? { ok: true, label: btn.label, files: saved } : { ok: false, reason: "SEND_FAILED", message: "点击下载后没有触发下载事件" };
+  return saved.length
+    ? { ok: true, label: used, files: saved }
+    : { ok: false, reason: "SEND_FAILED", message: `点击下载后没有触发下载事件（候选：${diag.join(" | ") || "无"}）` };
 }
