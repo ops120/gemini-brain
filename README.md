@@ -475,7 +475,7 @@ scripts/gmb/
 
 ## 许可证
 
-本项目基于 MIT License 开源。
+本项目基于 MIT License 开源，完整条款见 [LICENSE](LICENSE)。
 
 ## 社区
 
